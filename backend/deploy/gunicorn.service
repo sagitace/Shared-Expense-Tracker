@@ -1,0 +1,18 @@
+[Unit]
+Description=Shared Expense Tracker - Gunicorn
+After=network.target mysql.service redis-server.service
+
+[Service]
+Type=simple
+User=azureuser
+Group=azureuser
+WorkingDirectory=/opt/shared-expense-tracker/backend
+EnvironmentFile=/opt/shared-expense-tracker/backend/.env
+ExecStart=/opt/shared-expense-tracker/backend/.venv/bin/gunicorn \
+    --workers 3 \
+    --bind 127.0.0.1:8000 \
+    shared_expense_tracker.wsgi:application
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

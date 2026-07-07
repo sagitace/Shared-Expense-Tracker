@@ -1,0 +1,15 @@
+[Unit]
+Description=Shared Expense Tracker - Celery worker
+After=network.target redis-server.service mysql.service
+
+[Service]
+Type=simple
+User=azureuser
+Group=www-data
+WorkingDirectory=/opt/shared-expense-tracker/backend
+EnvironmentFile=/opt/shared-expense-tracker/backend/.env
+ExecStart=/opt/shared-expense-tracker/backend/.venv/bin/celery -A shared_expense_tracker worker -l info
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
