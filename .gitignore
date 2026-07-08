@@ -17,3 +17,10 @@ frontend/.env
 .DS_Store
 Thumbs.db
 .vscode/
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite build output
+vite.config.js
+vite.config.d.ts
