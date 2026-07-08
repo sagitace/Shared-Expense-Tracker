@@ -1,23 +1,35 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import client from '@/api/client'
+import { extractApiError } from '@/api/errors'
 import type { Friend, Payment, Receivable } from '@/api/types'
+
+type PaymentForm = { friend: number; amount: string; date: string; method: 'cash' | 'bank' | 'gcash' | 'other'; notes: string }
 
 export default function PaymentsPage() {
   const queryClient = useQueryClient()
+  const [error, setError] = useState('')
   const friends = useQuery({ queryKey: ['friends'], queryFn: async () => (await client.get<Friend[]>('/ledger/friends/')).data })
   const receivables = useQuery({ queryKey: ['receivables'], queryFn: async () => (await client.get<Receivable[]>('/ledger/receivables/')).data })
   const payments = useQuery({ queryKey: ['payments'], queryFn: async () => (await client.get<Payment[]>('/ledger/payments/')).data })
-  const { register, handleSubmit, reset } = useForm<{ friend: number; amount: string; date: string; method: 'cash' | 'bank' | 'gcash' | 'other'; notes: string }>()
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<PaymentForm>()
 
   const createPayment = useMutation({
-    mutationFn: async (payload: { friend: number; amount: string; date: string; method: 'cash' | 'bank' | 'gcash' | 'other'; notes: string }) => client.post('/ledger/payments/', payload),
+    mutationFn: async (payload: PaymentForm) => client.post('/ledger/payments/', payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['payments'] })
       await queryClient.invalidateQueries({ queryKey: ['receivables'] })
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setError('')
       reset()
     },
+    onError: (mutationError) => setError(extractApiError(mutationError)),
   })
 
   return (
@@ -25,14 +37,22 @@ export default function PaymentsPage() {
       <form className="rounded-3xl border border-white/10 bg-white/5 p-5" onSubmit={handleSubmit((values) => createPayment.mutate(values))}>
         <h2 className="text-lg font-semibold">Record payment</h2>
         <div className="mt-4 space-y-3">
-          <select className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" {...register('friend', { valueAsNumber: true })}>
+          <select className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" {...register('friend', { valueAsNumber: true, required: true })}>
             <option value="">Select friend</option>
             {friends.data?.map((friend) => (
               <option key={friend.id} value={friend.id}>{friend.name}</option>
             ))}
           </select>
-          <input className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" type="number" step="0.01" placeholder="Amount" {...register('amount')} />
-          <input className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" type="date" {...register('date')} />
+          <input
+            className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3"
+            type="number"
+            step="0.01"
+            min="0.01"
+            placeholder="Amount"
+            {...register('amount', { required: true, min: { value: 0.01, message: 'Amount must be greater than zero.' } })}
+          />
+          {errors.amount ? <p className="text-sm text-rose-300">{errors.amount.message || 'Amount is required.'}</p> : null}
+          <input className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" type="date" {...register('date', { required: true })} />
           <select className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" {...register('method')}>
             <option value="cash">Cash</option>
             <option value="bank">Bank Transfer</option>
@@ -40,6 +60,7 @@ export default function PaymentsPage() {
             <option value="other">Other</option>
           </select>
           <textarea className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" rows={4} placeholder="Notes" {...register('notes')} />
+          {error ? <p className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p> : null}
           <button className="w-full rounded-2xl bg-amber-300 px-4 py-3 font-semibold text-slate-950">Save payment</button>
         </div>
       </form>

@@ -1,5 +1,6 @@
 from django.db.models import DecimalField, ExpressionWrapper, Sum
 from django.db.models.functions import TruncMonth
+from django.utils import timezone
 from rest_framework import permissions, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -100,5 +101,81 @@ class DashboardView(APIView):
                 "outstanding": total_owed - total_paid,
                 "by_friend": list(by_friend),
                 "monthly_expense": list(monthly_expense),
+            }
+        )
+
+
+class MonthlyReportView(APIView):
+    def get(self, request):
+        now = timezone.now()
+        try:
+            year = int(request.query_params.get("year", now.year))
+            month = int(request.query_params.get("month", now.month))
+        except ValueError:
+            raise ValidationError("year and month must be integers.")
+        if not 1 <= month <= 12:
+            raise ValidationError("month must be between 1 and 12.")
+
+        expense_years = Expense.objects.filter(owner=request.user).dates("date", "year")
+        available_years = sorted({date.year for date in expense_years}, reverse=True)
+        if year not in available_years:
+            available_years = sorted(set(available_years) | {year}, reverse=True)
+
+        receivables = Receivable.objects.filter(
+            expense__owner=request.user, expense__date__year=year, expense__date__month=month
+        )
+        total_owed = receivables.aggregate(total=Sum("amount_owed"))["total"] or 0
+        collected_amount = (
+            Payment.objects.filter(friend__owner=request.user, date__year=year, date__month=month).aggregate(
+                total=Sum("amount")
+            )["total"]
+            or 0
+        )
+        friends_borrowed = list(
+            receivables.values("friend_id", "friend__name")
+            .annotate(amount_owed=Sum("amount_owed"), amount_paid=Sum("amount_paid"))
+            .order_by("friend__name")
+        )
+
+        expenses_qs = (
+            Expense.objects.filter(owner=request.user, date__year=year, date__month=month)
+            .select_related("category")
+            .prefetch_related("items__participants__friend")
+            .order_by("date")
+        )
+        expenses_data = [
+            {
+                "id": expense.id,
+                "date": expense.date,
+                "description": expense.description,
+                "category_name": expense.category.name if expense.category_id else None,
+                "total_amount": expense.total_amount,
+                "items": [
+                    {
+                        "name": item.name,
+                        "price": item.price,
+                        "participants": [
+                            {
+                                "friend_name": participant.friend.name if participant.friend_id else "You",
+                                "share": participant.computed_amount,
+                            }
+                            for participant in item.participants.all()
+                        ],
+                    }
+                    for item in expense.items.all()
+                ],
+            }
+            for expense in expenses_qs
+        ]
+
+        return Response(
+            {
+                "year": year,
+                "month": month,
+                "available_years": available_years,
+                "total_owed": total_owed,
+                "collected_amount": collected_amount,
+                "friends_borrowed": friends_borrowed,
+                "expenses": expenses_data,
             }
         )

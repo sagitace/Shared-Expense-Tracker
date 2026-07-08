@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { extractApiError } from '@/api/errors'
 
 export default function SignupPage() {
   const [name, setName] = useState('')
@@ -25,7 +26,7 @@ export default function SignupPage() {
               await register({ email, name, password })
               navigate('/')
             } catch (submitError) {
-              setError('Could not create account. Check your details and try again.')
+              setError(extractApiError(submitError, 'Could not create account. Check your details and try again.'))
             }
           }}
         >

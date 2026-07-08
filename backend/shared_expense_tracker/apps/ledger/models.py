@@ -152,7 +152,7 @@ class Payment(TimeStampedModel):
         OTHER = "other", "Other"
 
     friend = models.ForeignKey(Friend, on_delete=models.PROTECT, related_name="payments")
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
     date = models.DateField(db_index=True)
     method = models.CharField(max_length=20, choices=Method.choices, default=Method.CASH)
     notes = models.TextField(blank=True)

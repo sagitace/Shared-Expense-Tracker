@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { extractApiError } from '@/api/errors'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -24,7 +25,7 @@ export default function LoginPage() {
               await login({ email, password })
               navigate('/')
             } catch (submitError) {
-              setError('Could not sign in. Check your credentials and try again.')
+              setError(extractApiError(submitError, 'Could not sign in. Check your credentials and try again.'))
             }
           }}
         >

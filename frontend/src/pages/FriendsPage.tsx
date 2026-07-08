@@ -1,36 +1,70 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import client from '@/api/client'
+import { extractApiError } from '@/api/errors'
 import type { Friend } from '@/api/types'
+
+type FriendForm = { name: string; email: string; phone: string }
 
 export default function FriendsPage() {
   const queryClient = useQueryClient()
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [error, setError] = useState('')
   const friends = useQuery({
     queryKey: ['friends'],
     queryFn: async () => (await client.get<Friend[]>('/ledger/friends/')).data,
   })
-  const { register, handleSubmit, reset } = useForm<{ name: string; email: string; phone: string }>()
+  const { register, handleSubmit, reset } = useForm<FriendForm>({
+    defaultValues: { name: '', email: '', phone: '' },
+  })
 
-  const createFriend = useMutation({
-    mutationFn: async (payload: { name: string; email: string; phone: string }) => client.post('/ledger/friends/', payload),
+  const saveFriend = useMutation({
+    mutationFn: async (payload: FriendForm) =>
+      editingId ? client.patch(`/ledger/friends/${editingId}/`, payload) : client.post('/ledger/friends/', payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['friends'] })
-      reset()
+      setEditingId(null)
+      reset({ name: '', email: '', phone: '' })
+      setError('')
     },
+    onError: (mutationError) => setError(extractApiError(mutationError)),
   })
+
+  const startEdit = (friend: Friend) => {
+    setEditingId(friend.id)
+    setError('')
+    reset({ name: friend.name, email: friend.email, phone: friend.phone })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setError('')
+    reset({ name: '', email: '', phone: '' })
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
       <form
         className="rounded-3xl border border-white/10 bg-white/5 p-5"
-        onSubmit={handleSubmit((values) => createFriend.mutate(values))}
+        onSubmit={handleSubmit((values) => saveFriend.mutate(values))}
       >
-        <h2 className="text-lg font-semibold">Add friend</h2>
+        <h2 className="text-lg font-semibold">{editingId ? 'Edit friend' : 'Add friend'}</h2>
         <div className="mt-4 space-y-4">
           <input className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" placeholder="Name" {...register('name', { required: true })} />
           <input className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" placeholder="Email" {...register('email')} />
           <input className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3" placeholder="Phone" {...register('phone')} />
-          <button className="w-full rounded-2xl bg-amber-300 px-4 py-3 font-semibold text-slate-950">Save friend</button>
+          {error ? <p className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p> : null}
+          <div className="flex gap-3">
+            <button className="w-full rounded-2xl bg-amber-300 px-4 py-3 font-semibold text-slate-950">
+              {editingId ? 'Save changes' : 'Save friend'}
+            </button>
+            {editingId ? (
+              <button type="button" onClick={cancelEdit} className="rounded-2xl border border-white/10 px-4 py-3 text-sm text-slate-300">
+                Cancel
+              </button>
+            ) : null}
+          </div>
         </div>
       </form>
       <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
@@ -43,9 +77,18 @@ export default function FriendsPage() {
                   <p className="font-semibold">{friend.name}</p>
                   <p className="text-sm text-slate-400">{friend.email || 'No email'} • {friend.phone || 'No phone'}</p>
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs ${friend.is_active ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-500/20 text-slate-300'}`}>
-                  {friend.is_active ? 'Active' : 'Archived'}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className={`rounded-full px-3 py-1 text-xs ${friend.is_active ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-500/20 text-slate-300'}`}>
+                    {friend.is_active ? 'Active' : 'Archived'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => startEdit(friend)}
+                    className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-200 hover:bg-white/10"
+                  >
+                    Edit
+                  </button>
+                </div>
               </div>
             </div>
           ))}

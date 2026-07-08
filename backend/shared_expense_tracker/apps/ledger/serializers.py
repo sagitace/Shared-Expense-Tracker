@@ -160,11 +160,12 @@ class PaymentAllocationSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
+    friend_name = serializers.CharField(source="friend.name", read_only=True)
     allocations = PaymentAllocationSerializer(many=True, required=False)
 
     class Meta:
         model = Payment
-        fields = ("id", "friend", "amount", "date", "method", "notes", "allocations", "created_at")
+        fields = ("id", "friend", "friend_name", "amount", "date", "method", "notes", "allocations", "created_at")
         read_only_fields = ("created_at",)
 
     def validate(self, attrs):
