@@ -6,6 +6,10 @@ const client = axios.create({
   baseURL,
 })
 
+// Plain instance with no interceptors — used only for the refresh call itself,
+// so a failing refresh can never get caught and retried by the interceptor below.
+const refreshClient = axios.create({ baseURL })
+
 let refreshPromise: Promise<string | null> | null = null
 
 function getTokens() {
@@ -13,6 +17,11 @@ function getTokens() {
     access: localStorage.getItem('access_token'),
     refresh: localStorage.getItem('refresh_token'),
   }
+}
+
+function clearTokens() {
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('refresh_token')
 }
 
 client.interceptors.request.use((config) => {
@@ -28,24 +37,34 @@ client.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true
       const { refresh } = getTokens()
       if (!refresh) {
+        clearTokens()
         return Promise.reject(error)
       }
-      refreshPromise = refreshPromise ?? client.post('/auth/refresh/', { refresh }).then((response) => response.data.access)
+      if (!refreshPromise) {
+        refreshPromise = refreshClient
+          .post('/auth/refresh/', { refresh })
+          .then((response) => response.data.access as string)
+          .catch((refreshError) => {
+            clearTokens()
+            throw refreshError
+          })
+          .finally(() => {
+            refreshPromise = null
+          })
+      }
       try {
         const access = await refreshPromise
-        refreshPromise = null
         if (access) {
           localStorage.setItem('access_token', access)
           originalRequest.headers.Authorization = `Bearer ${access}`
           return client(originalRequest)
         }
       } catch {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
+        // Refresh failed — tokens already cleared above; fall through to reject.
       }
     }
     return Promise.reject(error)

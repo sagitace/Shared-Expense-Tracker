@@ -59,6 +59,14 @@ class Expense(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="paid_expenses",
     )
+    paid_by_friend = models.ForeignKey(
+        "Friend",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="expenses_paid",
+        help_text="If set, this friend paid for the expense instead of the owner.",
+    )
     date = models.DateField(db_index=True)
     description = models.CharField(max_length=255)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses")
@@ -116,8 +124,13 @@ class Receivable(TimeStampedModel):
         PARTIAL = "partial", "Partial"
         PAID = "paid", "Paid"
 
+    class Direction(models.TextChoices):
+        OWED_TO_ME = "owed_to_me", "Owed to me"
+        OWED_BY_ME = "owed_by_me", "Owed by me"
+
     expense = models.ForeignKey(Expense, on_delete=models.CASCADE, related_name="receivables")
     friend = models.ForeignKey(Friend, on_delete=models.PROTECT, related_name="receivables")
+    direction = models.CharField(max_length=20, choices=Direction.choices, default=Direction.OWED_TO_ME, db_index=True)
     amount_owed = models.DecimalField(max_digits=12, decimal_places=2)
     amount_paid = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.UNPAID, db_index=True)
@@ -151,7 +164,12 @@ class Payment(TimeStampedModel):
         GCASH = "gcash", "GCash"
         OTHER = "other", "Other"
 
+    class Direction(models.TextChoices):
+        RECEIVED = "received", "Received from friend"
+        SENT = "sent", "Sent to friend"
+
     friend = models.ForeignKey(Friend, on_delete=models.PROTECT, related_name="payments")
+    direction = models.CharField(max_length=20, choices=Direction.choices, default=Direction.RECEIVED, db_index=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
     date = models.DateField(db_index=True)
     method = models.CharField(max_length=20, choices=Method.choices, default=Method.CASH)

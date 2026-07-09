@@ -53,6 +53,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "id",
             "owner",
             "paid_by",
+            "paid_by_friend",
             "date",
             "description",
             "category",
@@ -82,6 +83,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
     def _write_items(self, expense, items_data):
         total_amount = Decimal("0.00")
         receivable_totals = {}
+        owner_share_total = Decimal("0.00")
 
         for item_data in items_data:
             participants_data = item_data.pop("participants")
@@ -107,20 +109,38 @@ class ExpenseSerializer(serializers.ModelSerializer):
                 if participant.friend_id:
                     receivable_totals.setdefault(participant.friend_id, Decimal("0.00"))
                     receivable_totals[participant.friend_id] += participant.computed_amount
+                if participant.is_owner_share:
+                    owner_share_total += participant.computed_amount
 
-        return total_amount, receivable_totals
+        return total_amount, receivable_totals, owner_share_total
+
+    def _write_receivables(self, expense, receivable_totals, owner_share_total):
+        if expense.paid_by_friend_id:
+            if owner_share_total > 0:
+                Receivable.objects.create(
+                    expense=expense,
+                    friend_id=expense.paid_by_friend_id,
+                    direction=Receivable.Direction.OWED_BY_ME,
+                    amount_owed=money(owner_share_total),
+                )
+            return
+        for friend_id, amount_owed in receivable_totals.items():
+            Receivable.objects.create(
+                expense=expense,
+                friend_id=friend_id,
+                direction=Receivable.Direction.OWED_TO_ME,
+                amount_owed=money(amount_owed),
+            )
 
     @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop("items")
         validated_data.setdefault("paid_by", self.context["request"].user)
         expense = Expense.objects.create(owner=self.context["request"].user, **validated_data)
-        total_amount, receivable_totals = self._write_items(expense, items_data)
+        total_amount, receivable_totals, owner_share_total = self._write_items(expense, items_data)
         expense.total_amount = money(total_amount)
         expense.save(update_fields=["total_amount"])
-
-        for friend_id, amount_owed in receivable_totals.items():
-            Receivable.objects.create(expense=expense, friend_id=friend_id, amount_owed=money(amount_owed))
+        self._write_receivables(expense, receivable_totals, owner_share_total)
         return expense
 
     @transaction.atomic
@@ -135,11 +155,10 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
         instance.items.all().delete()
         instance.receivables.all().delete()
-        total_amount, receivable_totals = self._write_items(instance, items_data)
+        total_amount, receivable_totals, owner_share_total = self._write_items(instance, items_data)
         instance.total_amount = money(total_amount)
         instance.save(update_fields=["total_amount"])
-        for friend_id, amount_owed in receivable_totals.items():
-            Receivable.objects.create(expense=instance, friend_id=friend_id, amount_owed=money(amount_owed))
+        self._write_receivables(instance, receivable_totals, owner_share_total)
         return instance
 
 
@@ -150,7 +169,19 @@ class ReceivableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Receivable
-        fields = ("id", "expense", "expense_description", "friend", "friend_name", "amount_owed", "amount_paid", "status", "balance", "created_at")
+        fields = (
+            "id",
+            "expense",
+            "expense_description",
+            "friend",
+            "friend_name",
+            "direction",
+            "amount_owed",
+            "amount_paid",
+            "status",
+            "balance",
+            "created_at",
+        )
 
 
 class PaymentAllocationSerializer(serializers.ModelSerializer):
@@ -165,7 +196,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Payment
-        fields = ("id", "friend", "friend_name", "amount", "date", "method", "notes", "allocations", "created_at")
+        fields = ("id", "friend", "friend_name", "direction", "amount", "date", "method", "notes", "allocations", "created_at")
         read_only_fields = ("created_at",)
 
     def validate(self, attrs):
@@ -185,13 +216,19 @@ class PaymentSerializer(serializers.ModelSerializer):
             self._create_oldest_first_allocations(payment)
         return payment
 
+    def _receivable_direction(self, payment):
+        return Receivable.Direction.OWED_TO_ME if payment.direction == Payment.Direction.RECEIVED else Receivable.Direction.OWED_BY_ME
+
     def _create_manual_allocations(self, payment, allocations_data):
+        expected_direction = self._receivable_direction(payment)
         for allocation_data in allocations_data:
             receivable_ref = allocation_data["receivable"]
             receivable = Receivable.objects.select_for_update().get(pk=receivable_ref.pk if hasattr(receivable_ref, "pk") else receivable_ref)
             amount_allocated = money(allocation_data["amount_allocated"])
             if receivable.friend_id != payment.friend_id:
                 raise serializers.ValidationError("Allocations must belong to the same friend as the payment.")
+            if receivable.direction != expected_direction:
+                raise serializers.ValidationError("Allocations must match the payment's direction.")
             if amount_allocated > receivable.balance:
                 raise serializers.ValidationError("Payment allocation cannot exceed the receivable balance.")
             PaymentAllocation.objects.create(payment=payment, receivable=receivable, amount_allocated=amount_allocated)
@@ -200,7 +237,12 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def _create_oldest_first_allocations(self, payment):
         remaining = money(payment.amount)
-        receivables = Receivable.objects.select_for_update().filter(friend=payment.friend).exclude(status=Receivable.Status.PAID).order_by("created_at", "id")
+        receivables = (
+            Receivable.objects.select_for_update()
+            .filter(friend=payment.friend, direction=self._receivable_direction(payment))
+            .exclude(status=Receivable.Status.PAID)
+            .order_by("created_at", "id")
+        )
         total_outstanding = sum((receivable.balance for receivable in receivables), Decimal("0.00"))
         if remaining > total_outstanding:
             raise serializers.ValidationError("Payment exceeds the outstanding balance for this friend.")

@@ -24,9 +24,31 @@ export type DashboardResponse = {
   total_owed: number
   total_paid: number
   outstanding: number
-  by_friend: Array<{ friend_id: number; friend__name: string; total_owed: number; total_paid: number; balance: number }>
+  total_owed_by_me: number
+  total_paid_by_me: number
+  outstanding_by_me: number
+  my_share: number
+  by_friend: Array<{
+    friend_id: number
+    friend__name: string
+    total_owed: number
+    total_paid: number
+    owed_by_me: number
+    paid_by_me: number
+    balance: number
+  }>
   monthly_expense: Array<{ month: string; total: number }>
+  spending_by_category: Array<{ category_label: string; total: number }>
+  recent_activity: Array<{
+    type: 'expense' | 'payment_received' | 'payment_sent'
+    id: number
+    date: string
+    description: string
+    amount: number
+  }>
 }
+
+export type ReceivableDirection = 'owed_to_me' | 'owed_by_me'
 
 export type Receivable = {
   id: number
@@ -34,6 +56,7 @@ export type Receivable = {
   expense_description: string
   friend: number
   friend_name: string
+  direction: ReceivableDirection
   amount_owed: string
   amount_paid: string
   status: string
@@ -59,6 +82,7 @@ export type ExpenseInput = {
   description: string
   category: number | null
   paid_by?: number
+  paid_by_friend?: number | null
   receipt?: File | null
   items: ExpenseItemInput[]
 }
@@ -83,6 +107,7 @@ export type Expense = {
   id: number
   owner: number
   paid_by: number
+  paid_by_friend: number | null
   date: string
   description: string
   category: number | null
@@ -94,10 +119,13 @@ export type Expense = {
   updated_at: string
 }
 
+export type PaymentDirection = 'received' | 'sent'
+
 export type Payment = {
   id: number
   friend: number
   friend_name?: string
+  direction: PaymentDirection
   amount: string
   date: string
   method: 'cash' | 'bank' | 'gcash' | 'other'
@@ -110,7 +138,9 @@ export type MonthlyReport = {
   month: number
   available_years: number[]
   total_owed: number
+  total_owed_by_me: number
   collected_amount: number
+  paid_out_amount: number
   friends_borrowed: Array<{ friend_id: number; friend__name: string; amount_owed: number; amount_paid: number }>
   expenses: Array<{
     id: number
@@ -128,6 +158,7 @@ export type MonthlyReport = {
 
 export type PaymentInput = {
   friend: number
+  direction: PaymentDirection
   amount: string
   date: string
   method: 'cash' | 'bank' | 'gcash' | 'other'

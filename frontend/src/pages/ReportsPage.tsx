@@ -44,9 +44,11 @@ export default function ReportsPage() {
         </select>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Total owed this month" value={`₱${Number(report.data?.total_owed ?? 0).toLocaleString()}`} />
         <StatCard label="Collected this month" value={`₱${Number(report.data?.collected_amount ?? 0).toLocaleString()}`} />
+        <StatCard label="You owe this month" value={`₱${Number(report.data?.total_owed_by_me ?? 0).toLocaleString()}`} />
+        <StatCard label="Paid out this month" value={`₱${Number(report.data?.paid_out_amount ?? 0).toLocaleString()}`} />
       </section>
 
       <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
